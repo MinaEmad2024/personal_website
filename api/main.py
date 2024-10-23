@@ -9,12 +9,13 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import relationship, DeclarativeBase, Mapped, mapped_column, foreign
 from sqlalchemy import Integer, String, Text
 from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash,  check_password_hash
 import os
 import smtplib
 import pip._vendor.requests
 # Import your forms from the forms.py
-from api.forms import CreatePostForm,RegisterUser,LoginUser, CommentPostForm
+from forms import CreatePostForm,RegisterUser,LoginUser, CommentPostForm, addCategory, choices
+
 
 '''
 Make sure the required packages are installed: 
@@ -29,10 +30,11 @@ pip3 install -r requirements.txt
 This will install the packages from the requirements.txt for this project.
 '''
 admin = False
+year = date.today().year
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('FLASK_KEY') #'8BYkEfBA6O6donzWlSihBXox7C0sKR6b' #os.environ.get('FLASK_KEY')
+app.config['SECRET_KEY'] = os.environ.get('FLASK_KEY')#'8BYkEfBA6O6donzWlSihBXox7C0sKR6b' #os.environ.get('FLASK_KEY')
 ckeditor = CKEditor(app)
-ckeditor.autoParagraph = False;
+ckeditor.autoParagraph = False
 ckeditor.enterMode = 2
 Bootstrap5(app)
 
@@ -68,9 +70,12 @@ class BlogPost(db.Model):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     author: Mapped[str] = mapped_column(String(250), nullable=False)
     img_url: Mapped[str] = mapped_column(String(250), nullable=False)
+    link_url:Mapped[str] = mapped_column(String(250), nullable=False)
     user_id: Mapped[int] = mapped_column(db.ForeignKey("users.id"))
     user: Mapped["User"] = relationship(back_populates="BlogPosts")
     Comments: Mapped[list["Comment"]] = relationship(back_populates="blog_post")
+    category_id: Mapped[int] = mapped_column(db.ForeignKey("categories.id"))
+    category: Mapped["Category"] = relationship(back_populates="BlogPosts")
 
 
 # TODO: Create a User table for all your registered users.
@@ -94,6 +99,14 @@ class Comment(db.Model):
     blog_post: Mapped["BlogPost"] = relationship(back_populates="Comments")
 
 
+class Category(db.Model):
+    __tablename__ = "categories"
+    id:Mapped[int] = mapped_column(Integer, primary_key=True)
+    category: Mapped[str] = mapped_column(String(250), nullable=False )
+    BlogPosts: Mapped[list["BlogPost"]] = relationship(back_populates="category")
+
+
+
 
 
 
@@ -113,6 +126,8 @@ class Comment(db.Model):
 
 with app.app_context():
     db.create_all()
+    
+
 
 # LoginManager is needed for our application
 # to be able to log in and out users
@@ -125,6 +140,7 @@ login_manager.init_app(app)
 def load_user(user_id):
     #print(user_id)
     return User.query.get(user_id)
+ 
 
 
 # TODO: Use Werkzeug to hash the user's password when creating a new user.
@@ -150,7 +166,7 @@ def register():
             load_user(new_user.id)
             login_user(new_user)
             return redirect(url_for("get_all_posts"))
-    return render_template("register.html", form=form)
+    return render_template("register.html", form=form, year=year)
 
 
 # TODO: Retrieve a user from the database based on their email. 
@@ -182,7 +198,7 @@ def login():
             #error = 'Invalid credentials'
             return redirect(url_for("login"))
 
-    return render_template("login.html", form=form)
+    return render_template("login.html", form=form, year=year)
 
 
 def admin_only():
@@ -205,9 +221,19 @@ def logout():
 
 @app.route('/')
 def get_all_posts():
+    categories = db.session.execute(db.select(Category)).scalars().all()
     result = db.session.execute(db.select(BlogPost))
     posts = result.scalars().all()
-    return render_template("index.html", all_posts=posts)
+    return render_template("index.html", all_posts=posts, categories=categories, year=year)
+
+
+@app.route('/category/<int:category_id>', methods=["GET", "POST"])
+def show_category(category_id):
+    category = db.get_or_404(Category, category_id)
+    print(category.category)
+    category_posts = db.session.execute(db.select(BlogPost).where(BlogPost.category_id == category.category)).scalars()
+    return render_template("index2.html", all_posts=category_posts, category=category, year=year)
+
 
 
 # TODO: Allow logged-in users to comment on posts
@@ -227,51 +253,81 @@ def show_post(post_id):
         #return redirect(url_for('get_all_posts'))
         return redirect(url_for('show_post', post_id=post_id))
 
-    return render_template("post.html", post=requested_post, form=form, comments=post_comments)
+    return render_template("post.html", post=requested_post, form=form, comments=post_comments, year=year)
 
 
 # TODO: Use a decorator so only an admin user can create a new post
 @app.route("/new-post", methods=["GET", "POST"])
 @admin_only()
 def add_new_post():
+
+    global choices
+    categories = db.session.execute(db.select(Category)).scalars().all()
+    for category in categories:
+        if category.category not in choices:
+            choices.append(category.category)
+    print(choices)
+    #[choices.append(category.category) for category in categories if category not in choices] #((category.id,category.category))
+
     form = CreatePostForm()
+    form_2 = addCategory()
     if form.validate_on_submit():
         new_post = BlogPost(
             title=form.title.data,
             subtitle=form.subtitle.data,
             body=form.body.data,
             img_url=form.img_url.data,
+            link_url=form.link_url.data,
             author=current_user.name,
             date=date.today().strftime("%B %d, %Y"),
-            user_id=current_user.id
+            user_id=current_user.id,
+            category_id=form.category.data
         )
         db.session.add(new_post)
         db.session.commit()
         return redirect(url_for("get_all_posts"))
-    return render_template("make-post.html", form=form)
+    
+    if form_2.validate_on_submit():
+        new_category = Category(
+            category = form_2.category.data
+        )
+        db.session.add(new_category)
+        db.session.commit()
+        return redirect(url_for("add_new_post"))
+    return render_template("make-post.html", form=form, form2=form_2, year=year)
 
 
 # TODO: Use a decorator so only an admin user can edit a post
 @app.route("/edit-post/<int:post_id>", methods=["GET", "POST"])
 @admin_only()
 def edit_post(post_id):
+    global choices
+    categories = db.session.execute(db.select(Category)).scalars().all()
+    for category in categories:
+        if category.category not in choices:
+            choices.append(category.category)
     post = db.get_or_404(BlogPost, post_id)
+    form_2 = addCategory()
     edit_form = CreatePostForm(
         title=post.title,
         subtitle=post.subtitle,
         img_url=post.img_url,
         author=post.author,
-        body=post.body
+        link_url=post.link_url,
+        body=post.body,
+        
     )
     if edit_form.validate_on_submit():
         post.title = edit_form.title.data
         post.subtitle = edit_form.subtitle.data
         post.img_url = edit_form.img_url.data
         post.author = current_user.name
+        post.link_url=edit_form.link_url.data
         post.body = edit_form.body.data
+        category_id=edit_form.category.data
         db.session.commit()
         return redirect(url_for("show_post", post_id=post.id))
-    return render_template("make-post.html", form=edit_form, is_edit=True)
+    return render_template("make-post.html", form=edit_form,form2=form_2, is_edit=True, year=year)
 
 
 # TODO: Use a decorator so only an admin user can delete a post
@@ -286,7 +342,7 @@ def delete_post(post_id):
 
 @app.route("/about")
 def about():
-    return render_template("about.html")
+    return render_template("about.html", year=year)
 
 
 @app.route("/contact", methods=['GET', 'POST'])
@@ -310,8 +366,8 @@ def contact():
         connection.close()
         return render_template("contact.html", msg_sent=True)
 
-    return render_template("contact.html", msg_sent=False)
+    return render_template("contact.html", msg_sent=False, year=year)
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(debug=False, port=5002)
