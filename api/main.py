@@ -272,7 +272,7 @@ def add_new_post():
     form = CreatePostForm()
     form_2 = addCategory()
     if form.validate_on_submit():
-        category_id = db.get_or_404(Category,form.category.data )
+        category_id = db.session.execute(db.select(Category).where(Category.category == form.category.data)).scalar()
         new_post = BlogPost(
             title=form.title.data,
             subtitle=form.subtitle.data,
