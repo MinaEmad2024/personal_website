@@ -272,6 +272,7 @@ def add_new_post():
     form = CreatePostForm()
     form_2 = addCategory()
     if form.validate_on_submit():
+        category_id = db.get_or_404(Category,form.category.data )
         new_post = BlogPost(
             title=form.title.data,
             subtitle=form.subtitle.data,
@@ -281,7 +282,7 @@ def add_new_post():
             author=current_user.name,
             date=date.today().strftime("%B %d, %Y"),
             user_id=current_user.id,
-            category_id=form.category.data
+            category_id=category_id.id  #form.category.data
         )
         db.session.add(new_post)
         db.session.commit()
