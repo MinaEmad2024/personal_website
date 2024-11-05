@@ -231,7 +231,7 @@ def get_all_posts():
 def show_category(category_id):
     category = db.get_or_404(Category, category_id)
     print(category.category)
-    category_posts = db.session.execute(db.select(BlogPost).where(BlogPost.category_id == category.category)).scalars()
+    category_posts = db.session.execute(db.select(BlogPost).where(BlogPost.category_id == category.id)).scalars()
     return render_template("index2.html", all_posts=category_posts, category=category, year=year)
 
 
